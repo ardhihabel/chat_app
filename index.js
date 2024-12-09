@@ -1,28 +1,30 @@
 import express from 'express';
+import 'dotenv/config'
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Server } from 'socket.io';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
 import { availableParallelism } from 'node:os';
 import cluster from 'node:cluster';
 import { createAdapter, setupPrimary } from '@socket.io/cluster-adapter';
+import mysql from 'mysql2/promise';
 
 // Fungsi untuk menginisialisasi database
 async function initializeDatabase() {
-  const db = await open({
-    filename: 'chat.db',
-    driver: sqlite3.Database
+  const db = await mysql.createConnection({
+    host    : process.env.DB_HOST,
+    user    : process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME
   });
 
-  await db.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INT AUTO_INCREMENT PRIMARY KEY,
       content TEXT,
-      sender TEXT,
-      receiver TEXT,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      sender VARCHAR(255),
+      receiver VARCHAR(255),
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
@@ -60,46 +62,43 @@ async function startServer() {
 
     io.on('connection', async (socket) => {
       // Handler untuk pesan chat
-      socket.on('chat message', async (msg, clientOffset, sender, receiver, callback) => {
+      socket.on('chat message', async (msg, clientOffset, sender, receiver, callback) => {        
         try {
-          const result = await db.run(
+          const [result] = await db.execute(
             'INSERT INTO messages (content, sender, receiver) VALUES (?, ?, ?)', 
-            msg, sender, receiver || null
+            [msg, sender, receiver || null]
           );
           
           // Broadcast pesan ke semua klient
           io.emit('chat message', { 
             msg, 
-            id: result.lastID, 
+            id: result.insertId, 
             sender, 
             receiver 
           });
           
           callback();
         } catch (e) {
-          if (e.errno === 19 /* SQLITE_CONSTRAINT */) {
-            callback();
-          } else {
-            console.error('Kesalahan penyimpanan pesan:', e);
-          }
+          console.error('Kesalahan penyimpanan pesan:', e);
+          callback(e);
         }
       });
 
       // Pemulihan pesan yang belum terkirim
       if (!socket.recovered) {
         try {
-          await db.each(
+          const [rows] = await db.execute(
             'SELECT id, content, sender, receiver FROM messages WHERE id > ?',
-            [socket.handshake.auth.serverOffset || 0],
-            (_err, row) => {
-              socket.emit('chat message', { 
-                msg: row.content, 
-                id: row.id, 
-                sender: row.sender, 
-                receiver: row.receiver 
-              });
-            }
+            [socket.handshake.auth.serverOffset || 0]
           );
+          rows.forEach(row => {
+            socket.emit('chat message', { 
+              msg: row.content, 
+              id: row.id, 
+              sender: row.sender, 
+              receiver: row.receiver 
+            });
+          });
         } catch (e) {
           console.error('Kesalahan pemulihan pesan:', e);
         }

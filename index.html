@@ -65,11 +65,6 @@
       }
       #messages > li {
         padding: 0.5rem 1rem;
-        margin-bottom: 10px;
-        border-radius: 8px;
-        background: #f4f4f4;
-        display: flex;
-        flex-direction: column;
       }
       .username {
         font-weight: bold;
@@ -78,6 +73,22 @@
       }
       .message {
         word-wrap: break-word;
+      }
+      .sent {
+        margin-bottom: 10px;
+        border-radius: 15px 0 15px 15px;
+        display: flex;
+        flex-direction: column;
+        margin-left: 4rem;
+        background: #d1e7dd; /* Warna untuk pesan yang dikirim */
+      }
+      .received {
+        margin-bottom: 10px;
+        border-radius: 0 15px 15px 15px;
+        display: flex;
+        flex-direction: column;
+        margin-right: 4rem;
+        background: #f8d7da; /* Warna untuk pesan yang diterima */
       }
     </style>
   </head>
@@ -130,7 +141,7 @@
             () => {
               input.value = "";
             }
-          );
+ );
         }
       });
 
@@ -138,7 +149,9 @@
         const { sender, receiver, msg } = data;
 
         // Tampilkan hanya jika sender atau receiver sesuai dengan username
-        if (sender === username || receiver === username) {
+        console.log(username, sender, receiver);
+        
+        if (sender === username || receiver === username || receiver === null) {
           const item = document.createElement("li");
           const usernameSpan = document.createElement("span");
           const messageSpan = document.createElement("span");
@@ -153,6 +166,13 @@
 
           usernameSpan.classList.add("username");
           messageSpan.classList.add("message");
+
+          // Tambahkan kelas berdasarkan apakah pengirim adalah pengguna saat ini
+          if (sender === username) {
+            item.classList.add("sent");
+          } else {
+            item.classList.add("received");
+          }
 
           item.appendChild(usernameSpan);
           item.appendChild(messageSpan);
