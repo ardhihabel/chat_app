@@ -19,10 +19,10 @@ async function initializeDatabase() {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_offset TEXT UNIQUE,
       content TEXT,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      username TEXT
+      sender TEXT,
+      receiver TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
@@ -53,24 +53,26 @@ async function startServer() {
     // Middleware untuk melayani file statis
     app.use(express.static(__dirname));
 
-    app.get('/', (req, res) => {
-      res.sendFile(join(__dirname, 'index.html'));
+    app.get('/:username', (req, res) => {
+      const { username } = req.params;
+      res.sendFile(join(__dirname, 'index.html'), { username });
     });
 
     io.on('connection', async (socket) => {
       // Handler untuk pesan chat
-      socket.on('chat message', async (msg, clientOffset, username, callback) => {
+      socket.on('chat message', async (msg, clientOffset, sender, receiver, callback) => {
         try {
           const result = await db.run(
-            'INSERT INTO messages (content, client_offset, username) VALUES (?, ?, ?)', 
-            msg, clientOffset, username
+            'INSERT INTO messages (content, sender, receiver) VALUES (?, ?, ?)', 
+            msg, sender, receiver || null
           );
           
-          // Broadcast pesan ke semua klien
+          // Broadcast pesan ke semua klient
           io.emit('chat message', { 
             msg, 
             id: result.lastID, 
-            username 
+            sender, 
+            receiver 
           });
           
           callback();
@@ -87,13 +89,14 @@ async function startServer() {
       if (!socket.recovered) {
         try {
           await db.each(
-            'SELECT id, content, username FROM messages WHERE id > ?',
+            'SELECT id, content, sender, receiver FROM messages WHERE id > ?',
             [socket.handshake.auth.serverOffset || 0],
             (_err, row) => {
               socket.emit('chat message', { 
                 msg: row.content, 
                 id: row.id, 
-                username: row.username 
+                sender: row.sender, 
+                receiver: row.receiver 
               });
             }
           );
