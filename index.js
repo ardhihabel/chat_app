@@ -19,12 +19,27 @@ async function initializeDatabase() {
   });
 
   await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(255) UNIQUE,
+      password VARCHAR(255),
+      role JSON,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+  `);
+
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
       id INT AUTO_INCREMENT PRIMARY KEY,
       content TEXT,
-      sender VARCHAR(255),
-      receiver VARCHAR(255),
-      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      sender_id INT,
+      receiver_id INT,
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (sender_id) REFERENCES users(id),
+      FOREIGN KEY (receiver_id) REFERENCES users(id)
     );
   `);
 
@@ -55,26 +70,36 @@ async function startServer() {
     // Middleware untuk melayani file statis
     app.use(express.static(__dirname));
 
-    app.get('/:username', (req, res) => {
-      const { username } = req.params;
-      res.sendFile(join(__dirname, 'index.html'), { username });
+    app.get('/:userID', (req, res) => {
+      const { userID } = req.params;
+      res.sendFile(join(__dirname, 'index.html'), { userID });
     });
 
     io.on('connection', async (socket) => {
       // Handler untuk pesan chat
-      socket.on('chat message', async (msg, clientOffset, sender, receiver, callback) => {        
+      socket.on('chat message', async (msg, clientOffset, sender_id, receiver_id, callback) => {        
         try {
-          const [result] = await db.execute(
-            'INSERT INTO messages (content, sender, receiver) VALUES (?, ?, ?)', 
-            [msg, sender, receiver || null]
-          );
+            const [result] = await db.execute(
+            'INSERT INTO messages (content, sender_id, receiver_id) VALUES (?, ?, ?)', 
+            [msg, sender_id, receiver_id || null]
+            );
+
+            const [rows] = await db.execute(
+            'SELECT m.id, m.content, m.sender_id, m.receiver_id, u1.username AS sender_name, u2.username AS receiver_name FROM messages m LEFT JOIN users u1 ON m.sender_id = u1.id LEFT JOIN users u2 ON m.receiver_id = u2.id WHERE m.id = ?',
+            [result.insertId]
+            );
+
+            const messageData = rows[0];
+            const { sender_name, receiver_name } = messageData;
           
           // Broadcast pesan ke semua klient
           io.emit('chat message', { 
             msg, 
             id: result.insertId, 
-            sender, 
-            receiver 
+            sender_id, 
+            receiver_id,
+            sender_name,
+            receiver_name
           });
           
           callback();
@@ -88,15 +113,18 @@ async function startServer() {
       if (!socket.recovered) {
         try {
           const [rows] = await db.execute(
-            'SELECT id, content, sender, receiver FROM messages WHERE id > ?',
+            'SELECT m.id, m.content, m.sender_id, m.receiver_id, u1.username AS sender_name, u2.username AS receiver_name FROM messages m LEFT JOIN users u1 ON m.sender_id = u1.id LEFT JOIN users u2 ON m.receiver_id = u2.id WHERE m.id > ?',
             [socket.handshake.auth.serverOffset || 0]
           );
+          
           rows.forEach(row => {
             socket.emit('chat message', { 
               msg: row.content, 
               id: row.id, 
-              sender: row.sender, 
-              receiver: row.receiver 
+              sender_name: row.sender_name, 
+              receiver_name: row.receiver_name,
+              sender_id: row.sender_id,
+              receiver_id: row.receiver_id
             });
           });
         } catch (e) {

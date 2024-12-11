@@ -121,14 +121,14 @@
       const receiverInput = document.getElementById("receiver");
       const messages = document.getElementById("messages");
 
-      const username = window.location.pathname.split("/")[1]; // Dapatkan username dari URL
+      const user_id = parseInt(window.location.pathname.split("/")[1]); 
 
       form.addEventListener("submit", (e) => {
         e.preventDefault();
-
-        const receiver = receiverInput.value.trim();
+        
+        const receiver_id = parseInt(receiverInput.value.trim());
         const message = input.value.trim();
-
+        
         if (message) {
           const clientOffset = `${socket.id}-${counter++}`;
 
@@ -136,30 +136,31 @@
             "chat message",
             message,
             clientOffset,
-            username,
-            receiver,
+            user_id,
+            receiver_id,
             () => {
               input.value = "";
             }
- );
+          );
         }
       });
 
       socket.on("chat message", (data) => {
-        const { sender, receiver, msg } = data;
+        const { sender_name, receiver_name, sender_id, receiver_id, msg } = data;
 
         // Tampilkan hanya jika sender atau receiver sesuai dengan username
-        console.log(username, sender, receiver);
-        
-        if (sender === username || receiver === username || receiver === null) {
+        if (sender_id === user_id || receiver_id === user_id || receiver_id === null) {
           const item = document.createElement("li");
           const usernameSpan = document.createElement("span");
           const messageSpan = document.createElement("span");
 
-          let displayUsername = sender;
-          if (receiver) {
-            displayUsername += " -> " + receiver;
+          let displayUsername = sender_name;
+          if (receiver_id) {
+            displayUsername += " -> " + receiver_name;
           }
+
+          console.log(data.sender_name);
+          
 
           usernameSpan.textContent = displayUsername;
           messageSpan.textContent = msg;
@@ -168,7 +169,7 @@
           messageSpan.classList.add("message");
 
           // Tambahkan kelas berdasarkan apakah pengirim adalah pengguna saat ini
-          if (sender === username) {
+          if (sender_id === user_id) {
             item.classList.add("sent");
           } else {
             item.classList.add("received");
